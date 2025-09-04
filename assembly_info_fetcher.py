@@ -5,7 +5,7 @@ import urllib
 
 import requests
 
-from urllib.parse import urlparse, urlencode, parse_qs
+from urllib.parse import urlparse, urlencode, parse_qs, urljoin
 
 from requests import Response
 
@@ -27,7 +27,7 @@ class AssemblyInfoFetcher:
         # parse_qs 결과가 key str, value list 이므로, key str, value str 로 변환
         self.queries = {k: v[0] for k, v in parse_qs(parsed.query).items()}
         self.requests_headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36'
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36"
         }
 
     def _to_query_string(self, additional_params: dict = None, exclude_params: list = None) -> str:
@@ -102,5 +102,7 @@ class AssemblyInfoFetcher:
         stream_list = response.json()["filePath"]
         default_stream_key = stream_list.get("default") or ""
         stream_list.pop("default")
+        # 제공된 url 형태는 //netloc 이므로 base url join 을 사용하여 https://netloc 으로 변환
+        stream_list = {k: urljoin(self.base_url, v) for k, v in stream_list.items()}
 
         return StreamingInfo(default_stream_key, stream_list)
