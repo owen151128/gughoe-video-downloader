@@ -7,6 +7,8 @@ import requests
 
 from urllib.parse import urlparse, urlencode, parse_qs
 
+from requests import Response
+
 from streaming_info import StreamingInfo
 from video_info import VideoInfo
 from video_item import VideoItem
@@ -58,39 +60,46 @@ class AssemblyInfoFetcher:
 
         return assembly_video_info
 
-    def fetch_assembly_video_info(self) -> VideoInfo:
-        additional_params = {
-            "cmd": "movieInfo",
-            "no": "",
-            "vv": f"{self._get_timestamp()}",
-        }
-        query_string = self._to_query_string(additional_params, ["menu"])
-        fetch_url = f"{self.base_url}{Consts.INFO_FETCH_PATH}?{query_string}&"
-        result = requests.get(fetch_url, headers=self.requests_headers)
-        result.raise_for_status()
-        assembly_video_info = self._parse_assembly_info_response(result.json())
-
-        return assembly_video_info
-
     # number 는 no 에 해당하는 인자로 index 값으로 추정
     # wv 는 wv 에 해당하는 인자
-    def fetch_assembly_streaming_info(self, mc, ct1, ct2, ct3, number, wv) -> StreamingInfo:
-        query = {
-            "cmd": "fileInfo",
+    def _fetch_movie_api(self, command, mc, ct1, ct2, ct3, number, wv, xreferer=None) -> Response:
+        params = {
+            "cmd": command,
             "mc": mc,
             "ct1": ct1,
             "ct2": ct2,
             "ct3": ct3,
             "no": number,
             "wv": wv,
-            "xreferer": "",
             "vv": f"{self._get_timestamp()}",
         }
-        query_string = urllib.parse.urlencode(query)
+        if xreferer is not None:
+            params["xreferer"] = xreferer
+        query_string = urllib.parse.urlencode(params)
         fetch_url = f"{self.base_url}{Consts.INFO_FETCH_PATH}?{query_string}&"
-        result = requests.get(fetch_url, headers=self.requests_headers)
-        result.raise_for_status()
-        stream_list = result.json()["filePath"]
+        response = requests.get(fetch_url, headers=self.requests_headers)
+        response.raise_for_status()
+
+        return response
+
+    def fetch_assembly_video_info(self) -> VideoInfo:
+        response = self._fetch_movie_api(
+            "movieInfo",
+            self.queries["mc"],
+            self.queries["ct1"],
+            self.queries["ct2"],
+            self.queries["ct3"],
+            "",
+            self.queries["wv"],
+        )
+
+        return self._parse_assembly_info_response(response.json())
+
+    # number 는 no 에 해당하는 인자로 index 값으로 추정
+    # wv 는 wv 에 해당하는 인자
+    def fetch_assembly_streaming_info(self, mc, ct1, ct2, ct3, number, wv) -> StreamingInfo:
+        response = self._fetch_movie_api("fileInfo", mc, ct1, ct2, ct3, number, wv, "")
+        stream_list = response.json()["filePath"]
         default_stream_key = stream_list.get("default") or ""
         stream_list.pop("default")
 
