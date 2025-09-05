@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 from PyQt5.QtGui import QFont
-from PyQt5.QtWidgets import QLineEdit, QPushButton, QHBoxLayout, QVBoxLayout, QFrame, QLabel, QWidget
+from PyQt5.QtWidgets import QLineEdit, QPushButton, QHBoxLayout, QVBoxLayout, QFrame, QLabel, QWidget, QComboBox
 
 
 class PyQtWrapper:
@@ -38,6 +38,17 @@ class PyQtWrapper:
             label.setFont(font)
 
         return label
+
+    @staticmethod
+    def combo_box(items, default, font=None) -> QComboBox:
+        combo_box = QComboBox()
+        for item in items:
+            combo_box.addItem(item)
+        combo_box.setCurrentText(default)
+        if font is not None:
+            combo_box.setFont(font)
+
+        return combo_box
 
     @staticmethod
     def h_layout_with_widgets(widgets) -> QHBoxLayout:
@@ -81,8 +92,15 @@ class PyQtWrapper:
 
     @staticmethod
     def clear_layout(layout):
-        while layout.count() > 1:
-            item = layout.takeAt(1)
-            widget = item.widget()
-            if widget is not None:
+        while layout.count():
+            item = layout.takeAt(0)
+
+            if item.widget():
+                widget = item.widget()
+                widget.setParent(None)
                 widget.deleteLater()
+
+            elif item.layout():
+                sub_layout = item.layout()
+                PyQtWrapper.clear_layout(sub_layout)
+                sub_layout.setParent(None)

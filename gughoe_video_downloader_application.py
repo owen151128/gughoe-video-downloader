@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 
-from PyQt5.QtGui import QFont, QFontMetrics
-from PyQt5.QtWidgets import QWidget, QDesktopWidget, QHBoxLayout, QLabel, QLineEdit, QPushButton, \
-    QVBoxLayout, QFrame
+from PyQt5.QtGui import QFontMetrics
+from PyQt5.QtWidgets import QWidget, QDesktopWidget, QVBoxLayout
 
 from assembly_info_fetcher import AssemblyInfoFetcher
+from background_worker import BackgroundWorker
 from py_qt_wrapper import PyQtWrapper
 
 
@@ -19,7 +19,10 @@ class GughoeVideoDownloaderApplication(QWidget):
         self.parsed_result_frame = None
         self.parsed_result_vertical_layout = None
 
+        self.assembly_info_fetcher = None
         self.current_video_info = None
+        self.current_streaming_info = None
+        self.background_workers = []
 
         self._initialize_input_url_edit()
         self._initialize_fetch_button()
@@ -68,39 +71,65 @@ class GughoeVideoDownloaderApplication(QWidget):
         self.fetch_button.setText("가져오는중...")
         PyQtWrapper.clear_layout(self.parsed_result_vertical_layout)
 
+    def _enable_fetch_button(self):
+        self.fetch_button.setText("파싱")
+        self.setEnabled(True)
+
+    def _fetch_assembly_video_info(self):
+        self.assembly_info_fetcher = AssemblyInfoFetcher(self.input_url_line_edit.text().strip())
+        self.current_video_info = self.assembly_info_fetcher.fetch_assembly_video_info()
+
+    def _on_fetch_assembly_video_info_done(self, data):
+        self._load_parsed_result()
+        self._enable_fetch_button()
+        self.background_workers.clear()
+
+    def _on_fetch_button_clicked(self):
+        self._disable_fetch_button()
+        background_worker = BackgroundWorker(self._fetch_assembly_video_info)
+        background_worker.result_ready.connect(self._on_fetch_assembly_video_info_done)
+        background_worker.start()
+        self.background_workers.append(background_worker)
+
     def _load_parsed_result(self):
         for video_item in self.current_video_info.video_item_list:
+            self.current_streaming_info = self.assembly_info_fetcher.fetch_assembly_streaming_info(
+                self.current_video_info.mc,
+                self.current_video_info.ct1,
+                self.current_video_info.ct2,
+                self.current_video_info.ct3,
+                video_item.number,
+                video_item.wv,
+            )
             title_h_layout = PyQtWrapper.h_layout_with_widgets([PyQtWrapper.label(video_item.title, self.default_font)])
             title_h_layout.addStretch(1)
+            streaming_resolution_input = PyQtWrapper.combo_box(
+                self.current_streaming_info.stream_list.keys(),
+                self.current_streaming_info.default_stream_key,
+                self.default_font,
+            )
+            title_h_layout.addWidget(streaming_resolution_input)
             v_layout = PyQtWrapper.v_layout_with_layouts([title_h_layout])
 
             download_button = PyQtWrapper.button(
                 "다운로드",
                 self.default_font,
-                click_handler=self._on_download_button_clicked
+                click_handler=lambda checked, combo=streaming_resolution_input: self._on_download_button_clicked(
+                    combo.currentText())
             )
-            button_h_layout = QHBoxLayout()
-            button_h_layout.addStretch(1)
-            button_h_layout.addWidget(download_button)
-            v_layout.addLayout(button_h_layout)
 
-            v_layout.addWidget(PyQtWrapper.label(
-                f"{video_item.play_time} ({video_item.real_time})",
-                self.default_font
-            ))
+            time_h_layout = PyQtWrapper.h_layout_with_widgets([
+                PyQtWrapper.label(
+                    f"{video_item.play_time} ({video_item.real_time})",
+                    self.default_font
+                )
+            ])
+            time_h_layout.addStretch(1)
+            time_h_layout.addWidget(download_button)
+            v_layout.addLayout(time_h_layout)
 
             self.parsed_result_vertical_layout.addWidget(PyQtWrapper.frame(v_layout))
 
-    def _enable_fetch_button(self):
-        self.fetch_button.setText("파싱")
-        self.setEnabled(True)
-
-    def _on_fetch_button_clicked(self):
-        self._disable_fetch_button()
-        assembly_info_fetcher = AssemblyInfoFetcher(self.input_url_line_edit.text().strip())
-        self.current_video_info = assembly_info_fetcher.fetch_assembly_video_info()
-        self._load_parsed_result()
-        self._enable_fetch_button()
-
-    def _on_download_button_clicked(self):
+    # streaming_info dict 에 m3u8 value 를 가져오기 위한 key 값
+    def _on_download_button_clicked(self, resolution_key):
         pass
