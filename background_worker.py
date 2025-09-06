@@ -5,6 +5,7 @@ from PyQt5.QtCore import QThread, pyqtSignal
 class BackgroundWorker(QThread):
     result_ready = pyqtSignal(object)
     error_occurred = pyqtSignal(str)
+    progress_signal = pyqtSignal(int)
 
     def __init__(self, func, *args, **kwargs):
         super().__init__()

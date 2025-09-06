@@ -1,10 +1,19 @@
 # -*- coding: utf-8 -*-
 
+import uuid
+
+from functools import partial
+from tempfile import TemporaryDirectory
+from pathlib import Path
+
 from PyQt5.QtGui import QFontMetrics
-from PyQt5.QtWidgets import QWidget, QDesktopWidget, QVBoxLayout
+from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import QWidget, QDesktopWidget, QVBoxLayout, QProgressDialog, QMessageBox
 
 from assembly_info_fetcher import AssemblyInfoFetcher
+from assembly_video_downloader import AssemblyVideoDownloader
 from background_worker import BackgroundWorker
+from ffmpeg_wrapper import FfmpegWrapper
 from py_qt_wrapper import PyQtWrapper
 
 
@@ -14,6 +23,8 @@ class GughoeVideoDownloaderApplication(QWidget):
         self.input_url_line_edit = None
         self.default_font = None
         self.fetch_button = None
+        self.progress_dialog = None
+        self.progress_dialog_signal = None
         self.top_horizonal_layout = None
         self.main_vertical_layout = None
         self.parsed_result_frame = None
@@ -21,7 +32,7 @@ class GughoeVideoDownloaderApplication(QWidget):
 
         self.assembly_info_fetcher = None
         self.current_video_info = None
-        self.current_streaming_info = None
+        self.current_streaming_info_list = []
         self.background_workers = []
 
         self._initialize_input_url_edit()
@@ -92,8 +103,9 @@ class GughoeVideoDownloaderApplication(QWidget):
         self.background_workers.append(background_worker)
 
     def _load_parsed_result(self):
-        for video_item in self.current_video_info.video_item_list:
-            self.current_streaming_info = self.assembly_info_fetcher.fetch_assembly_streaming_info(
+        self.current_streaming_info_list.clear()
+        for index, video_item in enumerate(self.current_video_info.video_item_list):
+            current_streaming_info = self.assembly_info_fetcher.fetch_assembly_streaming_info(
                 self.current_video_info.mc,
                 self.current_video_info.ct1,
                 self.current_video_info.ct2,
@@ -101,21 +113,23 @@ class GughoeVideoDownloaderApplication(QWidget):
                 video_item.number,
                 video_item.wv,
             )
+            self.current_streaming_info_list.append(current_streaming_info)
             title_h_layout = PyQtWrapper.h_layout_with_widgets([PyQtWrapper.label(video_item.title, self.default_font)])
             title_h_layout.addStretch(1)
             streaming_resolution_input = PyQtWrapper.combo_box(
-                self.current_streaming_info.stream_list.keys(),
-                self.current_streaming_info.default_stream_key,
+                current_streaming_info.stream_list.keys(),
+                current_streaming_info.default_stream_key,
                 self.default_font,
             )
             title_h_layout.addWidget(streaming_resolution_input)
             v_layout = PyQtWrapper.v_layout_with_layouts([title_h_layout])
 
+            streaming_resolution_input.setProperty("streaming_index", index)
             download_button = PyQtWrapper.button(
                 "다운로드",
                 self.default_font,
-                click_handler=lambda checked, combo=streaming_resolution_input: self._on_download_button_clicked(
-                    combo.currentText())
+                click_handler=partial(lambda checked, combo=streaming_resolution_input:
+                                      self._on_download_button_clicked(combo))
             )
 
             time_h_layout = PyQtWrapper.h_layout_with_widgets([
@@ -130,6 +144,47 @@ class GughoeVideoDownloaderApplication(QWidget):
 
             self.parsed_result_vertical_layout.addWidget(PyQtWrapper.frame(v_layout))
 
+    def _show_progress_dialog(self, title, message):
+        self.progress_dialog = QProgressDialog(message, None, 0, 100, self)
+        self.progress_dialog.setWindowTitle(title)
+        self.progress_dialog.setWindowModality(Qt.WindowModal)
+        self.progress_dialog.setAutoClose(True)
+        self.progress_dialog.setValue(0)
+        self.progress_dialog.show()
+
+    def _close_progress_dialog(self):
+        self.progress_dialog.close()
+
+    def _on_progress_dialog_update(self, value):
+        self.progress_dialog.setValue(value)
+
+    def _download_assembly_video(self, m3u8_url):
+        with TemporaryDirectory() as temp_dir:
+            ts_list_path = AssemblyVideoDownloader.download_assembly_video_ts(
+                m3u8_url,
+                self.progress_dialog_signal,
+                Path(temp_dir)
+            )
+            FfmpegWrapper().convert_ts_to_mp4(
+                Path(ts_list_path).resolve(),
+                Path(".").resolve() / f"{uuid.uuid4().hex}.mp4"
+            )
+
+    def _convert_ts_to_mp4(self):
+        self._close_progress_dialog()
+        QMessageBox.information(self, "정보", "다운로드 완료!")
+
     # streaming_info dict 에 m3u8 value 를 가져오기 위한 key 값
-    def _on_download_button_clicked(self, resolution_key):
-        pass
+    def _on_download_button_clicked(self, combo_box):
+        self._show_progress_dialog("현황", "다운로드중...")
+        background_worker = BackgroundWorker(
+            self._download_assembly_video,
+            self.current_streaming_info_list[
+                combo_box.property("streaming_index")].stream_list[combo_box.currentText()
+            ]
+        )
+        self.progress_dialog_signal = background_worker.progress_signal
+        background_worker.progress_signal.connect(self._on_progress_dialog_update)
+        background_worker.result_ready.connect(self._convert_ts_to_mp4)
+        self.background_workers.append(background_worker)
+        background_worker.start()
